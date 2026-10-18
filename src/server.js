@@ -4,11 +4,18 @@ import path from "path";
 import { PORT, REFRESH_MS, PUBLIC_DIR, MIME_TYPES } from "./config.js";
 import { fetchAndParseDishes } from "./parser.js";
 import { searchDishes } from "./search.js";
-import { askGemini } from "./gemini.js";
+import { askGemini, translateDescriptions } from "./gemini.js";
 
 let dishes = [];
 let loadedAt = null;
 let lastError = null;
+const searchProgress = new Map();
+
+function updateSearchProgress(requestId, stage) {
+  if (requestId && /^[0-9a-f-]{36}$/i.test(requestId)) {
+    searchProgress.set(requestId, stage);
+  }
+}
 
 async function loadDishes() {
   try {
@@ -30,6 +37,14 @@ async function loadDishes() {
 function sendJson(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body, null, 2));
+}
+
+async function translateResultDescriptions(results, requestId) {
+  const translations = await translateDescriptions(
+    results.map((dish) => dish.description),
+    (stage) => updateSearchProgress(requestId, stage)
+  );
+  return results.map((dish, index) => ({ ...dish, description: translations[index] }));
 }
 
 function serveStatic(res, pathname) {
@@ -60,30 +75,54 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { dishes: dishes.length, loadedAt, lastError });
   }
 
+  if (url.pathname === "/api/progress") {
+    const requestId = p.get("requestId") || "";
+    if (!/^[0-9a-f-]{36}$/i.test(requestId)) {
+      return sendJson(res, 400, { message: "Invalid request ID" });
+    }
+    return sendJson(res, 200, { stage: searchProgress.get(requestId) || "Finishing up" });
+  }
+
   if (url.pathname === "/api/search") {
-    const results = searchDishes(dishes, {
-      q: p.get("q") || "",
-      maxPrice: Number(p.get("maxPrice")) || 0,
-      vegan: p.has("vegan"),
-      vegetarian: p.has("vegetarian"),
-      menuType: p.get("menuType") || "",
-      dishType: p.get("dishType") || "",
-      day: p.get("day") || "",
-    });
-    return sendJson(res, 200, { count: results.length, results });
+    const requestId = req.headers["x-request-id"] || "";
+    try {
+      updateSearchProgress(requestId, "Searching available dishes");
+      const matched = searchDishes(dishes, {
+        q: p.get("q") || "",
+        maxPrice: Number(p.get("maxPrice")) || 0,
+        vegan: p.has("vegan"),
+        vegetarian: p.has("vegetarian"),
+        menuType: p.get("menuType") || "",
+        dishType: p.get("dishType") || "",
+        day: p.get("day") || "",
+      });
+      const results = await translateResultDescriptions(matched, requestId);
+      return sendJson(res, 200, { count: results.length, results });
+    } catch (err) {
+      console.error("Search translation failed:", err.message);
+      return sendJson(res, 502, { message: err.message });
+    } finally {
+      searchProgress.delete(requestId);
+    }
   }
 
   if (url.pathname === "/api/ask") {
+    const requestId = req.headers["x-request-id"] || "";
     const text = (p.get("text") || "").trim().slice(0, 200);
     if (!text) return sendJson(res, 400, { message: "Missing ?text= parameter" });
 
     try {
-      const filters = await askGemini(text);
-      const results = searchDishes(dishes, filters);
+      updateSearchProgress(requestId, "Interpreting your search with AI");
+      const filters = await askGemini(text, (stage) => updateSearchProgress(requestId, stage));
+      updateSearchProgress(requestId, "Searching available dishes");
+      const matched = searchDishes(dishes, filters);
+      const results = await translateResultDescriptions(matched, requestId);
       return sendJson(res, 200, { interpreted: filters, count: results.length, results });
     } catch (err) {
       console.error("Ask failed:", err.message);
       return sendJson(res, 502, { message: err.message });
+    } finally {
+      searchProgress.delete(requestId);
     }
   }
 

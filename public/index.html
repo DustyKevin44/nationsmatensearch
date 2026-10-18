@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nationsmaten - Search</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+  <div class="max-w-3xl mx-auto px-4 py-12">
+    
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <h1 class="text-3xl font-bold tracking-tight text-gray-900">Nationsmaten</h1>
+      <p class="text-sm text-gray-600 mt-1">Find food at Uppsala's student nations</p>
+    </div>
+
+    <!-- Search form -->
+    <form id="search-form" class="flex gap-2 mb-6">
+      <input 
+        type="text" 
+        id="search-input" 
+        placeholder="Search dishes or ingredients, or try 'cheap vegan lunch today'..." 
+        class="flex-1 px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+      >
+      <button 
+        type="submit" 
+        class="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg shadow-sm hover:bg-blue-700 transition text-sm">
+        Search
+      </button>
+    </form>
+
+    <!-- Status / Info -->
+    <div id="status-text" class="text-xs text-gray-500 text-center mb-6">Loading status...</div>
+
+    <!-- Search results -->
+    <div id="results-container" class="space-y-4">
+      <!-- Results are rendered here -->
+    </div>
+
+  </div>
+
+  <script>
+    const form = document.getElementById("search-form");
+    const input = document.getElementById("search-input");
+    const resultsContainer = document.getElementById("results-container");
+    const statusText = document.getElementById("status-text");
+
+    // Fetch status when the page loads
+    async function fetchStatus() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        statusText.textContent = `${data.dishes} dishes available (Last updated: ${new Date(data.loadedAt).toLocaleTimeString()})`;
+      } catch (e) {
+        statusText.textContent = "Could not load server status.";
+      }
+    }
+    fetchStatus();
+
+    // Handle searches
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = input.value.trim();
+      if (!query) return;
+
+      const requestId = crypto.randomUUID();
+      const progressText = document.createElement("p");
+      progressText.className = "text-center text-gray-500 py-8";
+      progressText.textContent = "Searching...";
+      resultsContainer.replaceChildren(progressText);
+
+      let progressPoll;
+      const progressTimeout = setTimeout(() => {
+        progressText.textContent = "Still working...";
+        progressPoll = setInterval(async () => {
+          try {
+            const progressRes = await fetch(`/api/progress?requestId=${requestId}`);
+            if (!progressRes.ok) return;
+            const progress = await progressRes.json();
+            progressText.textContent = `Still working: ${progress.stage}...`;
+          } catch {
+            // Keep the last known progress message if the status check fails.
+          }
+        }, 1000);
+      }, 5000);
+
+      try {
+        // Use AI to interpret free-text search queries.
+        const res = await fetch(`/api/ask?text=${encodeURIComponent(query)}`, {
+          headers: { "X-Request-Id": requestId },
+        });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.message || "An error occurred");
+
+        renderResults(data.results);
+      } catch (err) {
+        resultsContainer.innerHTML = `<p class="text-center text-red-500 py-8">Error: ${err.message}</p>`;
+      } finally {
+        clearTimeout(progressTimeout);
+        clearInterval(progressPoll);
+      }
+    });
+
+    function renderResults(dishes) {
+      if (dishes.length === 0) {
+        resultsContainer.innerHTML = `<p class="text-center text-gray-500 py-8">No dishes found.</p>`;
+        return;
+      }
+
+      const menuLabels = { Fika: "Coffee break" };
+      resultsContainer.innerHTML = dishes.map(d => `
+        <div class="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="text-xs font-semibold text-blue-600 uppercase tracking-wider">${d.nation} (${d.venue})</span>
+              <h3 class="text-lg font-bold text-gray-900 mt-0.5">${d.name}</h3>
+            </div>
+            <span class="text-base font-bold text-amber-600">${d.price ? d.price + ' SEK' : 'Price unavailable'}</span>
+          </div>
+          ${d.description ? `<p class="text-sm text-gray-600 italic mt-1">${d.description}</p>` : ''}
+          <div class="flex flex-wrap gap-2 mt-3">
+            <span class="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">${menuLabels[d.menuType] || d.menuType}</span>
+            <span class="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">${d.dishType}</span>
+            ${d.vegan ? '<span class="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">Vegan</span>' : ''}
+            ${d.vegetarian && !d.vegan ? '<span class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">Vegetarian</span>' : ''}
+            ${d.glutenFree ? '<span class="text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded">Gluten-free</span>' : ''}
+            ${d.lactoseFree ? '<span class="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded">Lactose-free</span>' : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+  </script>
+</body>
+</html>

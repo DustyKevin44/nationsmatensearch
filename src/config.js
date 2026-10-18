@@ -4,7 +4,7 @@ export const PORT = process.env.PORT || 3000;
 export const SOURCE_URL = "https://nationsmaten.se/search?q=";
 export const REFRESH_MS = 6 * 60 * 60 * 1000;
 export const GEMINI_KEY = process.env.GEMINI_API_KEY;
-export const GEMINI_MODEL = "gemini-2.5-flash";
+export const GEMINI_MODEL = "gemini-3.8-flash";
 export const PUBLIC_DIR = path.join(process.cwd(), "public");
 
 export const MIME_TYPES = {
