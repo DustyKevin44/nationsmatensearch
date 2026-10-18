@@ -1,0 +1,25 @@
+{
+  "name": "nationsmatensearch",
+  "version": "1.0.0",
+  "description": "A try at using node.js to scrape and search my site easily.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DustyKevin44/nationsmatensearch.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/DustyKevin44/nationsmatensearch/issues"
+  },
+  "homepage": "https://github.com/DustyKevin44/nationsmatensearch#readme",
+  "dependencies": {
+    "cheerio": "^1.2.0"
+  }
+}
