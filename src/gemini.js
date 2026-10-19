@@ -227,7 +227,7 @@ export async function askGemini(text, onProgress = () => {}) {
     SYSTEM_PROMPT,
     `Current day: ${day}.\n\nSearch: ${text}`,
     "filter generation",
-    512
+    3064
   );
   let filters;
   try {

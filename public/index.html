@@ -33,6 +33,9 @@
     <!-- Status / Info -->
     <div id="status-text" class="text-xs text-gray-500 text-center mb-6">Loading status...</div>
 
+    <!-- AI search interpretation -->
+    <div id="interpretation-container" class="hidden"></div>
+
     <!-- Search results -->
     <div id="results-container" class="space-y-4">
       <!-- Results are rendered here -->
@@ -44,6 +47,7 @@
     const form = document.getElementById("search-form");
     const input = document.getElementById("search-input");
     const resultsContainer = document.getElementById("results-container");
+    const interpretationContainer = document.getElementById("interpretation-container");
     const statusText = document.getElementById("status-text");
 
     // Fetch status when the page loads
@@ -63,6 +67,9 @@
       e.preventDefault();
       const query = input.value.trim();
       if (!query) return;
+
+      interpretationContainer.replaceChildren();
+      interpretationContainer.classList.add("hidden");
 
       const requestId = crypto.randomUUID();
       const progressText = document.createElement("p");
@@ -94,14 +101,119 @@
 
         if (!res.ok) throw new Error(data.message || "An error occurred");
 
+        renderInterpretation(data.interpreted);
         renderResults(data.results);
       } catch (err) {
+        interpretationContainer.replaceChildren();
+        interpretationContainer.classList.add("hidden");
         resultsContainer.innerHTML = `<p class="text-center text-red-500 py-8">Error: ${err.message}</p>`;
       } finally {
         clearTimeout(progressTimeout);
         clearInterval(progressPoll);
       }
     });
+
+    function renderInterpretation(filters) {
+      const keywords = (filters.q || "")
+        .split("+")
+        .map(group => group.trim().split(/\s+/).filter(Boolean))
+        .filter(group => group.length);
+      const constraints = [];
+
+      if (filters.vegan) constraints.push("Vegan");
+      else if (filters.vegetarian) constraints.push("Vegetarian");
+      if (filters.maxPrice > 0) constraints.push(`Up to ${filters.maxPrice} SEK`);
+      if (filters.menuType) {
+        constraints.push(filters.menuType === "Fika" ? "Coffee break" : filters.menuType);
+      }
+      if (filters.dishType) constraints.push(filters.dishType);
+      if (filters.day) constraints.push(filters.day);
+
+      if (!keywords.length && !constraints.length) return;
+
+      const box = document.createElement("section");
+      box.className = "mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3";
+      const heading = document.createElement("h2");
+      heading.className = "mb-2 text-xs font-semibold uppercase tracking-wide text-blue-900";
+      heading.textContent = "Search interpreted as";
+      box.append(heading);
+
+      function addChips(parent, values) {
+        for (const value of values) {
+          const chip = document.createElement("span");
+          chip.className = "rounded bg-white px-2 py-1 text-xs text-gray-700";
+          chip.textContent = value;
+          parent.append(chip);
+        }
+      }
+
+      function addKeywordGroup(parent, values) {
+        values.forEach((value, index) => {
+          if (index > 0) {
+            const or = document.createElement("span");
+            or.className = "text-xs text-gray-400";
+            or.textContent = "OR";
+            parent.append(or);
+          }
+          addChips(parent, [value]);
+        });
+      }
+
+      if (keywords.length) {
+        const keywordSummary = document.createElement("div");
+        keywordSummary.className = "flex flex-wrap items-center gap-1.5";
+        keywordSummary.setAttribute("aria-label", "Selected search keywords");
+        keywords.forEach((group, index) => {
+          if (index > 0) {
+            const and = document.createElement("span");
+            and.className = "px-1 text-xs font-medium text-gray-500";
+            and.textContent = "AND";
+            keywordSummary.append(and);
+          }
+          addKeywordGroup(keywordSummary, group.slice(0, 5));
+          if (group.length > 5) {
+            const more = document.createElement("span");
+            more.className = "text-xs text-gray-500";
+            more.textContent = `+${group.length - 5} more`;
+            keywordSummary.append(more);
+          }
+        });
+        box.append(keywordSummary);
+
+        if (keywords.some(group => group.length > 5)) {
+          const details = document.createElement("details");
+          details.className = "mt-2";
+          const summary = document.createElement("summary");
+          summary.className = "cursor-pointer text-xs text-blue-700";
+          summary.textContent = "Show all search terms";
+          details.append(summary);
+
+          const allKeywords = document.createElement("div");
+          allKeywords.className = "mt-2 flex flex-wrap items-center gap-1.5";
+          keywords.forEach((group, index) => {
+            if (index > 0) {
+              const and = document.createElement("span");
+              and.className = "px-1 text-xs font-medium text-gray-500";
+              and.textContent = "AND";
+              allKeywords.append(and);
+            }
+            addKeywordGroup(allKeywords, group);
+          });
+          details.append(allKeywords);
+          box.append(details);
+        }
+      }
+
+      if (constraints.length) {
+        const constraintList = document.createElement("div");
+        constraintList.className = "mt-2 flex flex-wrap gap-1.5";
+        addChips(constraintList, constraints);
+        box.append(constraintList);
+      }
+
+      interpretationContainer.replaceChildren(box);
+      interpretationContainer.classList.remove("hidden");
+    }
 
     function renderResults(dishes) {
       if (dishes.length === 0) {
